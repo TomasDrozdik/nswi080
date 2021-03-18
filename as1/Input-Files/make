@@ -1,0 +1,2 @@
+export CLASSPATH=.
+javac *.java
