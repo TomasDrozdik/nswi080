@@ -1,10 +1,16 @@
+import java.io.Serializable;
+import java.rmi.RemoteException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-public class NodeImpl implements Node {
+public class NodeImpl implements Node, Serializable {
 	private final Set<Node> nodes = new HashSet<Node>();
+
+	public NodeImpl() throws RemoteException {
+		super();
+	}
 
 	@Override
 	public Set<Node> getNeighbors() {
@@ -12,7 +18,7 @@ public class NodeImpl implements Node {
 	}
 
 	@Override
-	public Map<Node, Integer> getTransitiveNeighbors(int distance) {
+	public Map<Node, Integer> getTransitiveNeighbors(int distance) throws RemoteException {
 		if (distance <= 0)
 			throw new IllegalArgumentException("Argument distance must be positive");
 

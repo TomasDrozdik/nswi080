@@ -2,4 +2,4 @@
 
 export CLASSPATH=.
 
-java ExampleServer
+java Server
