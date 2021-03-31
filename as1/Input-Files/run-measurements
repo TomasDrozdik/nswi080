@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Exit when any command fails
+set -e
+
+HOST=${1?param missing - host}
+SEED=42
+NODES=100
+EDGE_BASE=200
+EDGE_STEP=50
+TRANSITIVE_STEP=4
+TRANSITIVE_END=16
+PRINT_HEADER=true
+
+for (( edges=${EDGE_BASE}; edges<=500; edges+=${EDGE_STEP} ))
+do
+    ./run-client ${HOST} ${SEED} ${NODES} ${edges} ${TRANSITIVE_STEP} ${TRANSITIVE_END} ${PRINT_HEADER}
+    PRINT_HEADER=false
+done
