@@ -41,12 +41,17 @@ struct ItemC{
   1: bool fieldA
 }
 
+// Added new item
+struct ItemD{
+  1: required string fieldA
+}
+
 // A type which can contain any of the item types
 union Item{
   1: ItemA itemA
   2: ItemB itemB
   3: ItemC itemC
-  // TODO: add another type of item
+  4: ItemD itemD
 }
 
 // State of fetching results of a search
@@ -58,6 +63,9 @@ enum FetchState{
     ITEMS = 2
     // All items were fetched
     ENDED = 3
+
+    // Update: The multiple_items field of FetchResult is set instead of an item
+    MULTIPLE_ITEMS = 4
 }
 
 // Represents a state of a search
@@ -66,6 +74,9 @@ struct SearchState{
     1: i32 countEstimate
     // Number of items fetched so far
     2: i32 fetchedItems
+    
+    // Update: new field to signal support for multiple fetched results
+    3: bool supportMultipleItems = false
 }
 
 // Result of a call to fetch
@@ -76,6 +87,9 @@ struct FetchResult{
     2: optional Item item
     // SearchState that should be passed to next call of fetch
     3: SearchState nextSearchState
+
+    // Update: Contain multiple items if client indicated support for them in FetchState
+    4: optional list<Item> multipleItems
 }
 
 // Type of a report
