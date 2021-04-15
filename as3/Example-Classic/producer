@@ -1,0 +1,7 @@
+#!/bin/bash
+
+source ./setenv
+
+JAVACMD="java"
+
+exec "$JAVACMD" -classpath ".:$ACTIVEMQ_HOME/lib/*" ExampleProducer

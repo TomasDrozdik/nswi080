@@ -1,0 +1,7 @@
+#!/bin/sh
+
+source ./setenv
+JAVACCMD="javac"
+
+"$JAVACCMD" -classpath "$ACTIVEMQ_HOME/lib/*" ExampleConsumer.java
+"$JAVACCMD" -classpath "$ACTIVEMQ_HOME/lib/*" ExampleProducer.java
