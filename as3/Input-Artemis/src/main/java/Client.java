@@ -574,6 +574,9 @@ public class Client {
 				reserverAccounts.put(buyerAccount, buyerName);
 				reserverDestinations.put(buyerName, buyerDest);
 
+				// Publish the goods since they changed
+				publishGoodsList(eventSender, eventSession);
+
 				response.setIntProperty(TRANSACTION_STATE_PROPERTY, TRANSACTION_STATE_ACCEPT);
 				response.setIntProperty(ACCOUNT_NUMBER_PROPERTY, accountNumber);
 				response.setIntProperty(GOODS_PRICE_PROPERTY, goods.price);
@@ -636,8 +639,12 @@ public class Client {
 						clientSender.send(buyerDest, confirmationMsg);
 
 						// TODO: send bank confirmation
+
 					} else {
 						// we don't consider this now for simplicity
+
+						// TODO: send bank a negative confirmation
+
 						assert (false);
 					}
 				} else if (cmd == Bank.REPORT_TYPE_INSUFFICIENT_FUNDS) {

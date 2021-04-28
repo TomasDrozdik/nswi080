@@ -13,6 +13,7 @@ public class ExampleProducer {
 		// Create connection to the broker.
 		// Note that the factory is usually obtained from JNDI, this method is ActiveMQ-specific
 		// used here for simplicity
+		//try (ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://lab.d3s.mff.cuni.cz:5000", "labUser", "sieb5w9");
 		try (ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
 				Connection connection = connectionFactory.createConnection()){
 			connection.start();
@@ -23,13 +24,13 @@ public class ExampleProducer {
 			// Create a queue, name must match the queue created by consumer
 			// Note that this is also provider-specific and should be obtained from JNDI
 			Queue queue1 = session.createQueue("ExampleQueue1");
-			
+
 			// Create a producer for the queue
 			MessageProducer producer1 = session.createProducer(queue1);
-			
+
 			// Create a message
 			Message message1 = session.createTextMessage("ping");
-			
+
 			// Send the message
 			producer1.send(message1);
 			
@@ -38,6 +39,13 @@ public class ExampleProducer {
 			MessageProducer producer2 = session.createProducer(queue2);
 			Message message2 = session.createTextMessage("ping");
 			producer2.send(message2);
+
+			// Lab assignment Repeate with another queue
+			//Queue queue3 = session.createQueue("LabQueue");
+			//MessageProducer producer3 = session.createProducer(queue3);		
+			//Message message3 = session.createTextMessage("totalyUniqueNickName");
+			//producer3.send(message3);
+
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
