@@ -11,8 +11,17 @@ public class Bank implements MessageListener {
 
 	// text message command open new account
 	public static final String NEW_ACCOUNT_MSG = "NEW_ACCOUNT";
-	
-	// MapMessage key for order type 
+
+	// text message command get account balance
+	public static final String CHECK_BALANCE_QUERY_MSG = "CHECK_BALANCE_QUERY";
+	public static final String CHECK_BALANCE_REPLY_MSG = "CHECK_BALANCE_REPLY";
+
+	public static final String ACCOUNT_BALANCE_PROPERTY = "currentBalance";
+
+	// Account initial balance
+	private static final int INITIAL_BALANCE = 10000;
+
+	// MapMessage key for order type
 	public static final String ORDER_TYPE_KEY = "orderType";
 
 	// order type "send money"
@@ -32,10 +41,11 @@ public class Bank implements MessageListener {
 	 
 	// report type "received money"
 	public static final int REPORT_TYPE_RECEIVED = 1;
-	
+	public static final int REPORT_TYPE_INSUFFICIENT_FUNDS = 2;
+
 	// MapMessage key for sender's account
 	public static final String REPORT_SENDER_ACC_KEY = "senderAccount";
-	
+
 	/**** PRIVATE VARIABLES ****/
 
 	// connection to broker
@@ -55,7 +65,7 @@ public class Bank implements MessageListener {
 	
 	// last assigned account number
 	private int lastAccount  = 1000000;
-	
+
 	// map client names to client account numbers
 	private Map<String, Integer> clientAccounts = new HashMap<String, Integer>();
 	
@@ -64,15 +74,15 @@ public class Bank implements MessageListener {
 	
 	// map client names to client report destinations
 	private Map<String, Destination> clientDestinations = new HashMap<String, Destination>();
-	
-	// TODO: store and check account balance
+
+	// store and check account balance
 	// in the current implementation, a transfer always succeeds 
 	// (1) check if the client has enough money
 	// (2) if not, send a message that the transfer failed instead
 	// (3) if yes, send the messages that the transfer succeeded and decrease the balance
-			
-	// TODO: add a command to get current account balance 
-	
+
+	private Map<Integer, Integer> accountBalance = new HashMap<Integer, Integer>();
+
 	/**** PRIVATE METHODS ****/
 	
 	/*
@@ -116,10 +126,10 @@ public class Bank implements MessageListener {
 		if (NEW_ACCOUNT_MSG.equals(txtMsg.getText())) {
 			// get the client's name stored as a property
 			String clientName = txtMsg.getStringProperty(Client.CLIENT_NAME_PROPERTY);
-			
+
 			// store client's reply destination for future transfer reports
 			clientDestinations.put(clientName, replyDest);
-			
+
 			int accountNumber;
 			// either assign new account number or return already known number
 			if (clientAccounts.get(clientName) != null) {
@@ -129,14 +139,23 @@ public class Bank implements MessageListener {
 				// also store the newly assigned number
 				clientAccounts.put(clientName, accountNumber);
 				accountsClients.put(accountNumber, clientName);
+				accountBalance.put(accountNumber, INITIAL_BALANCE);
 			}
-			
+
 			System.out.println("Connected client " + clientName + " with account " + accountNumber);
-			
+
 			// create reply TextMessage with the account number 
 			TextMessage reply = bankSession.createTextMessage(String.valueOf(accountNumber));
 			// send the reply to the provided reply destination
 			bankSender.send(replyDest, reply);
+		} else if (CHECK_BALANCE_QUERY_MSG.equals(txtMsg.getText())) {
+			// get the client's name stored as a property
+		    int accountNumber = txtMsg.getIntProperty(Client.ACCOUNT_NUMBER_PROPERTY);
+		    int balance = accountBalance.get(accountNumber);
+
+		    TextMessage reply = bankSession.createTextMessage(CHECK_BALANCE_REPLY_MSG);
+		    reply.setIntProperty(ACCOUNT_BALANCE_PROPERTY, balance);
+		    bankSender.send(replyDest, reply);
 		} else {
 			System.out.println("Received unknown text message: " + txtMsg.getText());
 			System.out.println("Full message info:\n" + txtMsg);
@@ -157,33 +176,50 @@ public class Bank implements MessageListener {
 			
 			// find client's account number
 			int clientAccount = clientAccounts.get(clientName);
-			
+
 			// get receiver account number
 			int destAccount = mapMsg.getInt(ORDER_RECEIVER_ACC_KEY);
-			
+
 			// find receiving client's name
 			String destName = accountsClients.get(destAccount);
-			
+
 			// find receiving client's report message destination
 			Destination dest = clientDestinations.get(destName);
-			
+
 			// get amount of money being transferred
 			int amount = mapMsg.getInt(AMOUNT_KEY);
-						
-			System.out.println("Transferring $" + amount + " from account " + clientAccount + " to account " + destAccount);
-			
+
 			// create report message for the receiving client
 			MapMessage reportMsg = bankSession.createMapMessage();
-			
-			// set report type to "you received money"
-			reportMsg.setInt(REPORT_TYPE_KEY, REPORT_TYPE_RECEIVED);
-			
+
 			// set sender's account number
 			reportMsg.setInt(REPORT_SENDER_ACC_KEY, clientAccount);
-			
+
 			// set money of amount transfered
 			reportMsg.setInt(AMOUNT_KEY, amount);
-			
+
+			// check account balance
+			int balance = accountBalance.get(clientAccount);
+
+			if (balance >= amount) {
+				System.out.println("Transferring $" + amount + " from account " + clientAccount + " to account " + destAccount);
+
+				// TODO: Instead of changing the balances now, wait for the sender to send a confirmation.
+				accountBalance.put(clientAccount, balance - amount);
+
+				int destBalance = accountBalance.get(destAccount);
+				accountBalance.put(destAccount, destBalance + amount);
+
+				// set report type to "you received money"
+				reportMsg.setInt(REPORT_TYPE_KEY, REPORT_TYPE_RECEIVED);
+			} else {
+				System.out.printf("Cannot transfer $%d from %d : %d to %d : Insufficient funds%n",
+						amount, clientAccount, balance, destAccount);
+
+				// set report type to "you received money"
+				reportMsg.setInt(REPORT_TYPE_KEY, REPORT_TYPE_INSUFFICIENT_FUNDS);
+			}
+
 			// send report to receiver client's destination
 			bankSender.send(dest, reportMsg);
 		} else {
