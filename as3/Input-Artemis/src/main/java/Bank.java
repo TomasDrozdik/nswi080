@@ -201,27 +201,50 @@ public class Bank implements MessageListener {
 			// check account balance
 			int balance = accountBalance.get(clientAccount);
 
-			if (balance >= amount) {
-				System.out.println("Transferring $" + amount + " from account " + clientAccount + " to account " + destAccount);
-
-				// TODO: Instead of changing the balances now, wait for the sender to send a confirmation.
-				accountBalance.put(clientAccount, balance - amount);
-
-				int destBalance = accountBalance.get(destAccount);
-				accountBalance.put(destAccount, destBalance + amount);
-
-				// set report type to "you received money"
-				reportMsg.setInt(REPORT_TYPE_KEY, REPORT_TYPE_RECEIVED);
-			} else {
+			if (balance < amount) {
 				System.out.printf("Cannot transfer $%d from %d : %d to %d : Insufficient funds%n",
 						amount, clientAccount, balance, destAccount);
 
 				// set report type to "you received money"
 				reportMsg.setInt(REPORT_TYPE_KEY, REPORT_TYPE_INSUFFICIENT_FUNDS);
-			}
+				bankSender.send(dest, reportMsg);
+			} else {
+				System.out.println("Waiting for confirmation of $" + amount + " from account " + clientAccount + " to account " + destAccount);
 
-			// send report to receiver client's destination
-			bankSender.send(dest, reportMsg);
+				// TODO: Instead of changing the balances now, wait for the sender to send a confirmation.
+
+				Queue fromSellerQueue = bankSession.createTemporaryQueue();
+				MessageConsumer tmpSellerReceiver = bankSession.createConsumer(fromSellerQueue);
+
+				// set report type to "you received money" but I need confirmation if the amount is sufficient
+				reportMsg.setInt(REPORT_TYPE_KEY, REPORT_TYPE_RECEIVED);
+				reportMsg.setJMSReplyTo(fromSellerQueue);
+
+				// send report to receiver client's destination
+				bankSender.send(dest, reportMsg);
+
+				Message msg = tmpSellerReceiver.receive();
+				if (msg instanceof TextMessage && Client.SALE_BANK_CONFIRMATION_MSG.equals(((TextMessage)msg).getText())) {
+					TextMessage saleConfirmation = (TextMessage) msg;
+					switch (saleConfirmation.getIntProperty(Client.SALE_BANK_CONFIRMATION_PROPERTY)) {
+						case Client.SALE_BANK_CONFIRMATION_VALID:
+							System.out.println("Transferring $" + amount + " from account " + clientAccount + " to account " + destAccount);
+
+							accountBalance.put(clientAccount, balance - amount);
+
+							int destBalance = accountBalance.get(destAccount);
+							accountBalance.put(destAccount, destBalance + amount);
+							break;
+						case Client.SALE_BANK_CONFIRMATION_INVALID:
+							System.out.println("Negative confirmation, transfer of funds stopped");
+							break;
+						default:
+							assert(false);
+					}
+				} else {
+					System.out.println("Invalid message type received as a confirmation of a transaction: " + msg);
+				}
+			}
 		} else {
 			System.out.println("Received unknown MapMessage:\n" + mapMsg);
 		}

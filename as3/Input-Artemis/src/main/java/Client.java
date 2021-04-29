@@ -33,8 +33,9 @@ public class Client {
 	public static final String TRANSACTION_STATE_PROPERTY = "transactionStateProperty";
 
 	public static final String TRANSACTION_ERROR_PROPERTY = "transactionErrorProperty";
-	public static final String TRANSACTION_ERROR_INSUFFICIENT_FUNDS = "Insufficient funds.";
-	public static final String TRANSACTION_ERROR_NO_GOODS = "No such goods found.";
+	public static final String TRANSACTION_ERROR_INSUFFICIENT_FUNDS = "Insufficient funds";
+	public static final String TRANSACTION_ERROR_NOT_ENOUGH_MONEY_SENT = "Incorrect amount of money sent";
+	public static final String TRANSACTION_ERROR_NO_GOODS = "No such goods found";
 
 	// values for seller response status field
 	public static final int TRANSACTION_STATE_ACCEPT = 1;
@@ -48,6 +49,12 @@ public class Client {
 
 	// text of the TextMessage that is a confirmation of a sale
 	public static final String SALE_CONFIRMATION_MSG = "SALE_CONFIRMATION";
+
+	public static final String SALE_BANK_CONFIRMATION_MSG = "SALE_BANK_CONFIRMATION";
+
+	public static final String SALE_BANK_CONFIRMATION_PROPERTY = "saleBankConfirmation";
+	public static final int SALE_BANK_CONFIRMATION_INVALID = 0;
+	public static final int SALE_BANK_CONFIRMATION_VALID = 1;
 
 	// name of the topic for publishing offers
 	public static final String OFFER_TOPIC = "Offers";
@@ -365,6 +372,8 @@ public class Client {
 		String sellerName = in.readLine();
 		System.out.println("Enter goods name:");
 		String goodsName = in.readLine();
+		System.out.println("Enter amount to send:");
+		int amountToSend = Integer.parseInt(in.readLine());
 
 		List<Goods> sellerGoods;
 		synchronized (lock) {
@@ -467,7 +476,7 @@ public class Client {
 		bankMsg.setStringProperty(CLIENT_NAME_PROPERTY, clientName);
 		bankMsg.setInt(Bank.ORDER_TYPE_KEY, Bank.ORDER_TYPE_SEND);
 		bankMsg.setInt(Bank.ORDER_RECEIVER_ACC_KEY, sellerAccount);
-		bankMsg.setInt(Bank.AMOUNT_KEY, price);
+		bankMsg.setInt(Bank.AMOUNT_KEY, amountToSend);
 
 		System.out.println("Sending $" + price + " to account " + sellerAccount);
 
@@ -599,6 +608,7 @@ public class Client {
 		// Bank reports are sent as MapMessage
 		if (msg instanceof MapMessage) {
 			MapMessage mapMsg = (MapMessage) msg;
+
 			synchronized (lock) {
 				// get report number
 				int cmd = mapMsg.getInt(Bank.REPORT_TYPE_KEY);
@@ -618,7 +628,7 @@ public class Client {
 					/* Step 2: decide what to do and modify data structures accordingly */
 
 					// did he pay enough?
-					if (amount >= g.price) {
+					if (amount == g.price) {
 						// get the buyer's destination
 						Destination buyerDest = reserverDestinations.get(buyerName);
 
@@ -638,14 +648,32 @@ public class Client {
 						// send reply (destination is buyerDest)
 						clientSender.send(buyerDest, confirmationMsg);
 
-						// TODO: send bank confirmation
+						// send bank confirmation i.e. transfer funds
+						TextMessage bankConfirmationMsg = clientSession.createTextMessage(SALE_BANK_CONFIRMATION_MSG);
+						bankConfirmationMsg.setIntProperty(SALE_BANK_CONFIRMATION_PROPERTY, SALE_BANK_CONFIRMATION_VALID);
 
+						Destination bankConfirmationDest = mapMsg.getJMSReplyTo();
+						clientSender.send(bankConfirmationDest, bankConfirmationMsg);
 					} else {
-						// we don't consider this now for simplicity
+						System.out.println("Incorrect amount of money $" + amount + " sent by buyer " + buyerName);
 
-						// TODO: send bank a negative confirmation
+						// send bank a negative confirmation i.e. it does not transfer funds
+						TextMessage bankConfirmationMsg = clientSession.createTextMessage(SALE_BANK_CONFIRMATION_MSG);
+						bankConfirmationMsg.setIntProperty(SALE_BANK_CONFIRMATION_PROPERTY, SALE_BANK_CONFIRMATION_INVALID);
 
-						assert (false);
+						Destination bankConfirmationDest = mapMsg.getJMSReplyTo();
+						clientSender.send(bankConfirmationDest, bankConfirmationMsg);
+
+						// inform buyer
+						// get the buyer's destination
+						Destination buyerDest = reserverDestinations.get(buyerName);
+
+						TextMessage denyMsg = clientSession.createTextMessage(SALE_CONFIRMATION_MSG);
+						denyMsg.setIntProperty(TRANSACTION_STATE_PROPERTY, TRANSACTION_STATE_DENY);
+						denyMsg.setStringProperty(GOODS_NAME_PROPERTY, g.name);
+						denyMsg.setStringProperty(TRANSACTION_ERROR_PROPERTY, TRANSACTION_ERROR_NOT_ENOUGH_MONEY_SENT);
+
+						clientSender.send(buyerDest, denyMsg);
 					}
 				} else if (cmd == Bank.REPORT_TYPE_INSUFFICIENT_FUNDS) {
 					// get account number of sender and the amount of money sent
@@ -658,7 +686,7 @@ public class Client {
 					// match the reserved goods
 					Goods g = reservedGoods.get(buyerName);
 
-					System.out.println("Received Insufficient amount $" + amount + " from " + buyerName);
+					System.out.println("Received Insufficient funds error $" + amount + " from " + buyerName);
 
 					// get the buyer's destination
 					Destination buyerDest = reserverDestinations.get(buyerName);
@@ -670,11 +698,11 @@ public class Client {
 
 					clientSender.send(buyerDest, denyMsg);
 				} else {
-					System.out.println("Received unknown MapMessage:\n: " + msg);
+					System.out.println("processBankReport: Received unknown MapMessage:\n: " + msg);
 				}
 			}
 		} else {
-			System.out.println("Received unknown message:\n: " + msg);
+			System.out.println("processBankReport: Received unknown message:\n: " + msg);
 		}
 	}
 
