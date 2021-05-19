@@ -1,10 +1,13 @@
 import com.hazelcast.client.HazelcastClient;
 import com.hazelcast.client.config.ClientConfig;
 import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.core.IExecutorService;
+import com.hazelcast.map.IMap;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
+import java.util.concurrent.Future;
 
 public class Client {
 	// Reader for user input
@@ -14,6 +17,10 @@ public class Client {
 	// The name of the user
 	private String userName;
 	// Do not keep any other state here - all data should be in the cluster
+	private IExecutorService executor;
+
+	private IMap<String, ClientProfile> clientProfiles;
+	private IMap<String, Document> documentMetadata;
 
 	/**
 	 * Create a client for the specified user.
@@ -22,8 +29,16 @@ public class Client {
 	public Client(String userName) {
 		this.userName = userName;
 		// Connect to the Hazelcast cluster
-		// ClientConfig config = new ClientConfig();
-		// hazelcast = HazelcastClient.newHazelcastClient(config);
+		ClientConfig config = new ClientConfig();
+		hazelcast = HazelcastClient.newHazelcastClient(config);
+		executor = hazelcast.getExecutorService("exec");
+
+		this.clientProfiles = hazelcast.getMap("clientProfiles");
+		this.documentMetadata = hazelcast.getMap("documentMetadata");
+
+		System.out.print("Logging in as\"" + userName + "\"");
+		clientProfiles.putIfAbsent(userName, new ClientProfile(userName));
+		System.out.print(" ... done!");
 	}
 
 	/**
@@ -31,7 +46,23 @@ public class Client {
 	 */
 	public void disconnect() {
 		// Disconnect from the Hazelcast cluster
-		// hazelcast.shutdown();
+		hazelcast.shutdown();
+	}
+
+	private Document loadDocument(String documentName) {
+		Future<Document> future = executor.submit(new DocumentGetTask(userName, documentName));
+		System.out.print("Loading document \"" + documentName + "\" ");
+		try {
+			while (!future.isDone()) {
+				System.out.print(".");
+				Thread.sleep(300);
+			}
+			System.out.println(" done!");
+			return future.get();
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
 	}
 
 	/**
@@ -39,17 +70,15 @@ public class Client {
 	 * select it as the current document of the user
 	 * and show the document content.
 	 */
-	private void showCommand() throws IOException {
+	private void showCommand() throws Exception {
 		System.out.println("Enter document name:");
 		String documentName = in.readLine();
 
-		// Currently, the document is generated directly on the client
-		// TODO: change it, so that the document is generated in the cluster and cached
-		Document document = DocumentGenerator.generateDocument(documentName);
-
-		// TODO: Set the current selected document for the user
-		// TODO: Get the document (from the cache, or generated)
-		// TODO: Increment the view count
+		Document document = loadDocument(documentName);
+		if (document == null) {
+			System.out.println("Document failed to load.");
+			return;
+		}
 
 		// Show the document content
 		System.out.println("The document is:");
@@ -62,8 +91,21 @@ public class Client {
 	 * will cyclically show all favorite documents of the user.
 	 */
 	private void nextFavoriteCommand() {
-		// TODO: Select the next document form the list of favorites
-		// TODO: Increment the view count, get the document (from the cache, or generated) and show the document content
+		String documentName = clientProfiles.executeOnKey(userName, new FavoriteNextEntryProcessor());
+		if (documentName == null) {
+			System.out.println("There is no favorite document.");
+			return;
+		}
+
+		Document document = loadDocument(documentName);
+		if (document == null) {
+			System.out.println("Document failed to load.");
+			return;
+		}
+
+		// Show the document content
+		System.out.println("The document is:");
+		System.out.println(document.getContent());
 	}
 
 	/**
@@ -71,57 +113,81 @@ public class Client {
 	 * If the list already contains the document name, do nothing.
 	 */
 	private void addFavoriteCommand() {
-		// TODO: Add the name of the selected document to the list of favorites
-		// System.out.printf("Added %s to favorites%n", selectedDocumentName);
+		String selectedDocument = clientProfiles.executeOnKey(userName, new FavoriteAddEntryProcessor());
+		if (selectedDocument == null) {
+			System.out.println("There is no selectedDocument.");
+			return;
+		}
+		System.out.printf("Added %s to favorites%n", selectedDocument);
 	}
+
 	/**
 	 * Remove the current selected document name from the list of favorite documents of the user.
 	 * If the list does not contain the document name, do nothing.
 	 */
 	private void removeFavoriteCommand(){
-		// TODO: Remove the name of the selected document from the list of favorites
-		// System.out.printf("Removed %s from favorites%n", selectedDocumentName);
+		String selectedDocument = clientProfiles.executeOnKey(userName, new FavoriteRemoveEntryProcessor());
+		if (selectedDocument == null) {
+			System.out.println("There is no selectedDocument.");
+			return;
+		}
+		System.out.printf("Removed %s from favorites%n", selectedDocument);
 	}
+
 	/**
 	 * Add the current selected document name to the list of favorite documents of the user.
 	 * If the list already contains the document name, do nothing.
 	 */
 	private void listFavoritesCommand() {
-		// TODO: Get the list of favorite documents of the user
+		ClientProfile profile = clientProfiles.get(userName);
 		// Print the list of favorite documents
-		// System.out.println("Your list of favorite documents:");
-		// for(String favoriteDocumentName: favoriteList)
-		//	System.out.println(favoriteDocumentName);
+		System.out.println("Your list of favorite documents:");
+		for(String favoriteDocumentName: profile.getFavorites()) {
+			System.out.println(favoriteDocumentName);
+		}
 	}
 
 	/**
 	 * Show the view count and comments of the current selected document.
 	 */
 	private void infoCommand(){
-		// TODO: Get the view count and list of comments of the selected document
+		ClientProfile profile = clientProfiles.get(userName);
+		String selectedDocument = profile.getSelectedDocument();
+		if (selectedDocument == null) {
+		    System.out.println("There is no selectedDocument.");
+			return;
+		}
 
-		// Print the information
-		// System.out.printf("Info about %s:%n", selectedDocumentName);
-		// System.out.printf("Viewed %d times.%n", viewCount);
-		// System.out.printf("Comments (%d):%n", comments.size());
-		// for(String comment: comments)
-		// 	System.out.println(comment);
+		DocumentInfo documentInfo = documentMetadata.get(selectedDocument);
+
+		System.out.printf("Info about %s:%n", documentInfo.getName());
+		System.out.printf("Viewed %d times.%n", documentInfo.getViewCount());
+		System.out.printf("Comments (%d):%n", documentInfo.getComments().size());
+		for(String comment: documentInfo.getComments()) {
+			System.out.println(comment);
+		}
 	}
+
 	/**
 	 * Add a comment about the current selected document.
 	 */
 	private void commentCommand() throws IOException{
 		System.out.println("Enter comment text:");
 		String commentText = in.readLine();
+		String selectedDocument = clientProfiles.get(userName).getSelectedDocument();
+		if (selectedDocument == null) {
+			System.out.println("There is no selectedDocument.");
+			return;
+		}
 
-		// TODO: Add the comment to the list of comments of the selected document
-		// System.out.printf("Added a comment about %s.%n", selectedDocumentName);
+		documentMetadata.executeOnKey(selectedDocument, new DocumentCommentEntryProcessor(commentText));
+		System.out.printf("Added a comment about %s.%n", selectedDocument);
 	}
 
 	/*
 	 * Main interactive user loop
 	 */
-	public void run() throws IOException {
+	public void run() throws Exception {
 		loop:
 		while (true) {
 			System.out.println("\nAvailable commands (type and press enter):");
@@ -191,5 +257,4 @@ public class Client {
 			e.printStackTrace();
 		}
 	}
-
 }

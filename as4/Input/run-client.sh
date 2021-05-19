@@ -1,4 +1,4 @@
 #!/bin/sh
-source setenv.sh
+source ./setenv.sh
 java Client "$@"
 
